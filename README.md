@@ -1,124 +1,152 @@
-# Unified AloneX + AI Chat + WordSeek
+# WordSeek
+<img width="1173" alt="Group 40 5" src="https://github.com/user-attachments/assets/bf444d36-2eea-4ad5-83e7-4a99acda2bfe" />
 
-This repository combines the three uploaded codebases into one deployable project.
+## Features
+- Play the Wordle-inspired word guessing game in private chats or group chats.
+- Supports multiplayer gameplay in groups, with admin tools for game management.
+- Keep track of scores with group and global leaderboards.
+- Commands to view personal scores and leaderboard rankings filtered by time (today, week, month, etc.).
+- Flexible game settings: customizable limits for attempts and group admin permissions.
 
-## What is integrated
+## How to Play
+1. **Start a game**: Use the `/new` command in a group or private chat.
+2. **Guess the word**: Players try to guess a random 5-letter word.
+3. **Hints after each guess**:
+   - 🟩 - Correct letter in the right spot.
+   - 🟨 - Correct letter in the wrong spot.
+   - 🟥 - Letter not in the word.
+4. The game ends when:
+   - The word is correctly guessed, or
+   - Maximum number of guesses (30) is reached.
+5. The first person to guess the word correctly wins!
 
-- **AloneX** remains the main Pyrogram music/voice-chat bot.
-- **Aichatbiit AI chat** is integrated as native Pyrogram handlers:
-  - `/ai <message>`
-  - `/ask <message>`
-  - In groups, normal text is answered only when replying to the bot.
-- **WordSeek** remains its original Bun/TypeScript service and uses the **same `BOT_TOKEN`**.
-- The original Aichatbiit source is preserved under `legacy/Aichatbiit/`.
+## Commands
+- **/new** - Start a new game.
+- **/end** - End the current game (admins only in group chats).
+- **/help** - Get help with commands and game rules.
+- **/leaderboard** - View leaderboards for the group or globally. Example:
+  ```
+  /leaderboard global week
+  ```
+- **/score** - View your score. Example:
+  ```
+  /score group all
+  /score @username group
+  ```
+- **/stats** - View bot usage stats (admin users only).
 
-## Important architecture note
+## Installation & Setup
 
-AloneX uses Pyrogram/MTProto while WordSeek uses grammY/Telegram Bot API. They are separate client runtimes but are configured with the same bot token. This avoids running two Bot API `getUpdates` consumers. If your deployment/provider rejects simultaneous MTProto + Bot API use for the same bot, WordSeek must be ported into the Pyrogram layer or run with a second bot token.
+### Requirements
+- Bun.js Runtime (or Node.js)
+- Telegram Bot Token (create one via [BotFather](https://core.telegram.org/bots#botfather))
+- PostgreSQL database
+- Redis server (for caching and session management)
 
-The Aichatbiit original `python-telegram-bot` polling loop is **not started**; its AI logic was ported to `AloneX/plugins/ai_chat.py` so it does not create a second Bot API polling consumer.
+### Steps
+1. **Clone the repository**:
+   ```bash
+   git clone https://github.com/binamralamsal/WordSeek
+   cd WordSeek
+   ```
 
-## Setup
+2. **Install dependencies**:
+   ```bash
+   bun install
+   ```
 
-1. Copy `.env.example` to `.env`.
-2. Fill:
-   - `BOT_TOKEN`
-   - `API_ID`
-   - `API_HASH`
-   - `MONGO_URL`
-   - `LOGGER_ID`
-   - `OWNER_ID`
-   - `SESSION`
-   - `GROQ_API_KEY`
-   - WordSeek `DATABASE_URL`, `REDIS_URI`, `DAILY_WORDLE_SECRET`
-3. Install Python requirements:
-   `pip install -r requirements.txt`
-4. Install Bun dependencies:
-   `cd wordseek && bun install && cd ..`
-5. Start everything:
-   `bash start-all.sh`
+3. **Configure environment variables**:
+   Create a `.env` file in the root directory with the following variables:
+   ```env
+   BOT_TOKEN=your-telegram-bot-token
+   DATABASE_URL=your-postgresql-database-url
+   NODE_ENV=development
+   REDIS_URI=redis://127.0.0.1:6379
+   ```
 
-## Docker
+4. **Set up the database**:
+   Run the database migrations to set up the required tables:
+   ```bash
+   bun run db:migrate latest
+   ```
 
-```bash
-cp .env.example .env
-docker compose up -d --build
-```
+5. **Start the bot**:
+   - **Development mode** (with hot reload):
+     ```bash
+     bun run dev
+     ```
+   - **Production mode**:
+     ```bash
+     bun run start
+     ```
 
-For Docker, use these database values in `.env`:
-- `DATABASE_URL=postgresql://postgres:postgres@postgres:5432/wordseek`
-- `REDIS_URI=redis://redis:6379`
+### Additional Database Commands
+- **Create new migrations** (after schema changes):
+  ```bash
+  bun run db:migrate make migration-name
+  ```
 
-## Termux / VPS
+## Environment Variables
 
-The project expects Python 3, Bun, FFmpeg and the services required by the original projects. A VPS is recommended for the music/voice features.
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `BOT_TOKEN` | Your Telegram bot token from BotFather | `123456789:ABCdefGHIjklMNOpqrsTUVwxyz` |
+| `DATABASE_URL` | PostgreSQL connection string | `postgresql://user:password@localhost:5432/wordseek` |
+| `NODE_ENV` | Environment mode | `development` or `production` |
+| `REDIS_URI` | Redis connection string | `redis://127.0.0.1:6379` |
 
-## Files
+## Technologies Used
+- **[grammy](https://grammy.dev/)**: Telegram Bot API framework.
+- **Drizzle ORM**: Simplified database queries and migrations.
+- **PostgreSQL**: Persistent storage for game data and leaderboards.
+- **Redis**: Caching and session management.
+- **Bun.js**: Blazing fast JavaScript runtime and package manager.
+- **Zod**: Schema validation and type safety.
 
-- `AloneX/` - original AloneX music bot
-- `config.py` - AloneX configuration
-- `wordseek/` - original WordSeek application
-- `legacy/Aichatbiit/` - original Aichatbiit source
-- `AloneX/plugins/ai_chat.py` - integrated AI feature
-- `.env.example` - combined environment template
-- `start-all.sh` - starts both bot runtimes
-- `docker-compose.yml` - PostgreSQL + Redis + combined bot
+## Try the Bot
+- **[WordSeek I](https://t.me/WordSeekBot)** *(Main bot)*
+- **[WordSeek II](https://t.me/WordSeek2Bot)** *(Use this if the main bot is busy)*
 
-## Security
+## Community
+- **Join the Official Group**: [Word Guesser Group](https://t.me/wordguesser) - Play the game, discuss strategies, and share feedback.
+- **Support the Developer**: [Binamra Bots Channel](https://t.me/BinamraBots)
+- **Contact the Developer**: Have suggestions or issues? Reach out on Telegram: [@binamralamsal](https://t.me/binamralamsal)
 
-Do not commit `.env`, bot tokens, API keys, database passwords or Telegram session strings.
+## Contributing
+We welcome contributions to enhance the bot! Here's how you can help:
 
+1. **Fork the repository** on GitHub.
+2. **Create a new branch** for your feature or bugfix:
+   ```bash
+   git checkout -b feature/your-feature-name
+   ```
+3. **Make your changes** and ensure they follow the project's coding standards.
+4. **Test your changes** thoroughly in development mode.
+5. **Commit your changes** with descriptive commit messages:
+   ```bash
+   git commit -m "Add: new feature description"
+   ```
+6. **Push to your fork** and **open a pull request** with a clear description of your changes.
 
-## Added Mini-Games
+### Development Guidelines
+- Follow the existing code style and structure.
+- Add appropriate error handling for new features.
+- Update documentation for any new commands or features.
+- Test both private chat and group chat functionality.
 
-The combined bot now includes: `/games`, `/quiz`, `/trivia`, `/ttt`, `/rps`, `/number`, `/guess`, `/hangman`, `/letter`, `/memory`, `/memoryanswer`, `/dice`, and `/coin`.
-Game state is in-memory and resets when the bot restarts.
+## Troubleshooting
 
-## UNO
+### Common Issues
+- **Database connection errors**: Ensure PostgreSQL is running and the `DATABASE_URL` is correct.
+- **Redis connection errors**: Make sure Redis server is running on the specified port.
+- **Bot not responding**: Verify your `BOT_TOKEN` is valid and the bot is not already running elsewhere.
+- **Migration errors**: Ensure you have proper database permissions and the database exists.
 
-Added multiplayer UNO commands: `/uno`, `/unojoin`, `/unoleave`, `/unostart`, `/unoplay`, `/unodraw`, `/unocolor`, `/unostatus`.
+### Getting Help
+If you encounter issues:
+1. Check the [Issues](https://github.com/binamralamsal/WordSeek/issues) page on GitHub.
+2. Join the [Word Guesser Group](https://t.me/wordguesser) for community support.
+3. Contact the developer directly: [@binamralamsal](https://t.me/binamralamsal)
 
-## UNO Card Stickers
-
-UNO cards are bundled as WebP sticker-style assets under `assets/uno_stickers/`. Played and drawn cards are sent as stickers with a text fallback.
-
-## UNO Screenshot-Style UI
-
-UNO now renders a game-board image showing the top card and hand, with inline card-choice buttons and a Draw button. This is designed to resemble the supplied UNO bot screenshot.
-
-## Word Chain
-
-Added an integrated Word Chain game adapted for the existing Pyrogram bot. The supplied on9wordchainbot source is preserved under `legacy/on9wordchainbot/`; it is not started as a second Telegram bot. Commands: `/wordchain`, `/wcjoin`, `/wcleave`, `/wcstart`, `/wcstatus`, `/wcstop`. Players then send 4–6 letter English words directly in the group; each word must start with the last letter of the previous word and cannot be reused. The bundled dictionary is built from the existing WordSeek common 4/5/6-letter lists.
-
-## Persistent Database System
-
-A dedicated `AppDatabase` layer has been added for data that should survive code/file updates:
-
-- PostgreSQL-backed `unified_users`
-- `unified_game_stats`
-- `unified_settings`
-- automatic table migration on startup
-- `/mystats` for persistent game statistics
-- `scripts/backup-db.sh` and `scripts/restore-db.sh`
-
-Set `UNIFIED_DATABASE_URL` to a persistent PostgreSQL database. It can use the same PostgreSQL server/database as WordSeek because all unified tables are prefixed with `unified_`.
-
-### Important deployment rule
-
-**Do not keep your production database inside the source ZIP/repository.** Put PostgreSQL on a persistent volume/service (Railway PostgreSQL, Supabase, Neon, a VPS volume, or Docker's named volume). You can then replace/update the bot source without deleting user data.
-
-For Docker, the included `postgres` service uses a named volume (`wordseek_pg`), so recreating the bot container does not delete the PostgreSQL data.
-
-Before updating source files, make a backup:
-
-```bash
-./scripts/backup-db.sh
-```
-
-After a failed update, restore if necessary:
-
-```bash
-./scripts/restore-db.sh db_backups/unified_YYYYMMDD_HHMMSS.dump
-```
-
-**Note:** active in-memory game rounds (for example an UNO round currently being played) still reset if the process crashes/restarts. Persistent user/settings/stats data survives. Making every active game resumable would require a second persistence pass for each game's state.
+## License
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for more details.
