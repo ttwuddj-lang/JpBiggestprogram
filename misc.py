@@ -1,134 +1,169 @@
-# Copyright (c) 2025 TheHamkerAlone
-# Licensed under the MIT License.
-# This file is part of AloneXMusic
-# ALONE-CODER
-
 import asyncio
-import time
+import logging
+from uuid import uuid4
 
-from pyrogram import enums, errors, filters, types
+from aiogram import Router, F, types
+from aiogram.enums import ChatType
+from aiogram.filters import JOIN_TRANSITION, ChatMemberUpdatedFilter, Command, CommandObject, CommandStart
 
-from AloneX import anon, app, config, db, lang, logger, queue, tasks, userbot, yt
-from AloneX.helpers import buttons
+from on9wordchainbot.resources import GlobalState, get_pool
+from on9wordchainbot.constants import ADMIN_GROUP_ID, OFFICIAL_GROUP_ID, VIP
+from on9wordchainbot.filters import IsOwner
+from on9wordchainbot.handlers.donation import send_donate_invoice
+from on9wordchainbot.models import GAME_MODES
+from on9wordchainbot.utils import ADD_TO_GROUP_KEYBOARD, amt_donated, awaitable_to_coroutine, is_word
+from on9wordchainbot.words import Words
+
+logger = logging.getLogger(__name__)
+
+router = Router(name=__name__)
 
 
-@app.on_message(filters.video_chat_started, group=19)
-@app.on_message(filters.video_chat_ended, group=20)
-async def _watcher_vc(_, m: types.Message):
-    await anon.stop(m.chat.id)
+@router.message(CommandStart(), F.chat.type == ChatType.PRIVATE)
+async def cmd_start(message: types.Message) -> None:
+    await message.reply(
+        (
+            "Hi! I host games of word chain in Telegram groups.\n"
+            "Add me to a group to start playing games!"
+        ),
+        reply_markup=ADD_TO_GROUP_KEYBOARD
+    )
 
 
-@app.on_chat_join_request()
-async def approve_assistants(_, request: types.ChatJoinRequest):
+@router.message(Command("feedback"))
+async def cmd_feedback(message: types.Message, command: CommandObject) -> None:
+    if message.forward_from:  # Avoid re-triggering on forward
+        return
+
+    args = command.args
+    if not args:
+        bot_user = await message.bot.me()
+        await message.reply(
+            "Function: Send feedback to my owner.\n"
+            f"Usage: `/feedback@{bot_user.username} feedback`"
+        )
+        return
+
+    asyncio.gather(
+        awaitable_to_coroutine(message.forward(ADMIN_GROUP_ID)),
+        awaitable_to_coroutine(message.reply("Feedback sent successfully."))
+    )
+
+
+@router.message(IsOwner(), Command("maintmode"))
+async def cmd_maintmode(message: types.Message) -> None:
+    GlobalState.maint_mode = not GlobalState.maint_mode
+    await message.reply(
+        f"Maintenance mode has been switched {'on' if GlobalState.maint_mode else 'off'}."
+    )
+
+
+@router.message(Command("leave"), IsOwner(), F.chat.type.in_((ChatType.GROUP, ChatType.SUPERGROUP)))
+async def cmd_leave(message: types.Message) -> None:
+    await message.chat.leave()
+
+
+@router.message(IsOwner(), Command("sql"))
+async def cmd_sql(message: types.Message, command: CommandObject) -> None:
+    args = command.args
+    if not args:
+        return
+
+    pool = get_pool()
     try:
-        assistant_ids = [c.id for c in userbot.clients if hasattr(c, "id")]
-        if request.from_user.id in assistant_ids:
-            await request.approve()
+        async with pool.acquire() as conn:
+            res = await conn.fetch(args)
     except Exception as e:
-        logger.error(f"Error approving assistant join request: {e}")
+        await message.reply(f"`{e.__class__.__name__}: {str(e)}`")
+        return
+
+    if not res:
+        await message.reply("No results returned.")
+        return
+
+    text = ["*" + " - ".join(res[0].keys()) + "*"]
+    for r in res:
+        text.append("`" + " - ".join(str(i) for i in r.values()) + "`")
+    await message.reply("\n".join(text))
 
 
-async def auto_leave():
-    while True:
-        await asyncio.sleep(1800)
-        for ub in userbot.clients:
-            left = 0
-            try:
-                for dialog in await ub.get_dialogs():
-                    chat_id = dialog.chat.id
-                    if left >= 20:
-                        break
-                    if chat_id in [app.logger, -1001686672798, -1001549206010]:
-                        continue
-                    if dialog.chat.type in [
-                        enums.ChatType.GROUP,
-                        enums.ChatType.SUPERGROUP,
-                    ]:
-                        if chat_id in db.active_calls:
-                            continue
-                        await ub.leave_chat(chat_id)
-                        left += 1
-                    await asyncio.sleep(5)
-            except:
-                continue
+@router.chat_member(ChatMemberUpdatedFilter(JOIN_TRANSITION))
+async def new_member(event: types.ChatMemberUpdated) -> None:
+    bot = event.bot
+    if event.new_chat_member.user.id == bot.id:  # self added to group
+        await event.answer(
+            "Thanks for adding me. Start a classic game with /startclassic!"
+        )
+    elif event.chat.id == OFFICIAL_GROUP_ID:
+        await event.answer(
+            "Welcome to the official On9 Word Chain group!\n"
+            "Start a classic game with /startclassic!"
+        )
 
 
-async def track_time():
-    while True:
-        await asyncio.sleep(1)
-        for chat_id in list(db.active_calls):
-            if not await db.playing(chat_id):
-                continue
-            media = queue.get_current(chat_id)
-            if not media:
-                continue
-            media.time += 1
+@router.inline_query()
+async def inline_handler(inline_query: types.InlineQuery) -> None:
+    bot = inline_query.bot
+    text = inline_query.query.lower()
+    results: list[types.InlineQueryResultUnion] = []
 
-
-async def update_timer(length=10):
-    while True:
-        await asyncio.sleep(7)
-        for chat_id in list(db.active_calls):
-            if not await db.playing(chat_id):
-                continue
-            try:
-                media = queue.get_current(chat_id)
-                duration, message_id = media.duration_sec, media.message_id
-                if not duration or not message_id or not media.time:
-                    continue
-                played = media.time
-                remaining = duration - played
-                pos = min(int((played / duration) * length), length - 1)
-                timer = "—" * pos + "◉" + "—" * (length - pos - 1)
-
-                if remaining <= 30:
-                    next = queue.get_next(chat_id, check=True)
-                    if next and not next.file_path:
-                        next.file_path = await yt.download(next.id, video=next.video)
-
-                if remaining < 10:
-                    remove = True
-                else:
-                    remove = False
-                    timer = f"{time.strftime('%M:%S', time.gmtime(played))} | {timer} | -{time.strftime('%M:%S', time.gmtime(remaining))}"
-
-                await app.edit_message_reply_markup(
-                    chat_id=chat_id,
-                    message_id=message_id,
-                    reply_markup=buttons.controls(
-                        chat_id=chat_id, timer=timer, remove=remove
-                    ),
+    if not text or inline_query.from_user.id not in VIP and (await amt_donated(inline_query.from_user.id)) < 10:
+        for mode in GAME_MODES:
+            bot_user = await bot.me()
+            command = f"/{mode.command}@{bot_user.username}"
+            results.append(
+                types.InlineQueryResultArticle(
+                    id=str(uuid4()),
+                    title="Start " + mode.name,
+                    description=command,
+                    input_message_content=types.InputTextMessageContent(message_text=command)
                 )
-            except Exception:
-                pass
+            )
+        await inline_query.answer(results, is_personal=not text)
+        return
+
+    if not is_word(text):
+        await inline_query.answer(
+            [
+                types.InlineQueryResultArticle(
+                    id=str(uuid4()),
+                    title="A query can only consist of alphabets",
+                    description="Try a different query",
+                    input_message_content=types.InputTextMessageContent(message_text=r"¯\\_(ツ)\_/¯")
+                )
+            ],
+            is_personal=True
+        )
+        return
+
+    for word in Words.dawg.iterkeys(text):
+        word = word.capitalize()
+        results.append(
+            types.InlineQueryResultArticle(
+                id=str(uuid4()),
+                title=word,
+                input_message_content=types.InputTextMessageContent(message_text=word)
+            )
+        )
+        if len(results) == 50:  # Max 50 results
+            break
+
+    if not results:  # No results
+        results.append(
+            types.InlineQueryResultArticle(
+                id=str(uuid4()),
+                title="No results found",
+                description="Try a different query",
+                input_message_content=types.InputTextMessageContent(message_text=r"¯\\_(ツ)\_/¯")
+            )
+        )
+
+    await inline_query.answer(results, is_personal=True)
 
 
-async def vc_watcher(sleep=15):
-    while True:
-        await asyncio.sleep(sleep)
-        for chat_id in list(db.active_calls):
-            client = await db.get_assistant(chat_id)
-            media = queue.get_current(chat_id)
-            participants = await client.get_participants(chat_id)
-            if len(participants) < 2 and media.time > 30:
-                _lang = await lang.get_lang(chat_id)
-                try:
-                    sent = await app.edit_message_reply_markup(
-                        chat_id=chat_id,
-                        message_id=media.message_id,
-                        reply_markup=buttons.controls(
-                            chat_id=chat_id, status=_lang["stopped"], remove=True
-                        ),
-                    )
-                    await anon.stop(chat_id)
-                    await sent.reply_text(_lang["auto_left"])
-                except errors.MessageIdInvalid:
-                    pass
-
-
-if config.AUTO_END:
-    tasks.append(asyncio.create_task(vc_watcher()))
-if config.AUTO_LEAVE:
-    tasks.append(asyncio.create_task(auto_leave()))
-tasks.append(asyncio.create_task(track_time()))
-tasks.append(asyncio.create_task(update_timer()))
+@router.callback_query()
+async def callback_query_handler(callback_query: types.CallbackQuery) -> None:
+    text = callback_query.data
+    if text.startswith("donate"):
+        await send_donate_invoice(callback_query.bot, callback_query.from_user.id, int(text.partition(":")[2]) * 100)
+    await callback_query.answer()
